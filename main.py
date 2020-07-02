@@ -12,12 +12,12 @@ os.environ["CUDA_VISIBLE_DEVICES"]="1,2"
 parser = argparse.ArgumentParser(description='Meme Hatefulness detection')
 
 # Fixed
-parser.add_argument('--model', type=str, default='AverageBERT',
-                    help='name of the model to use (Transformer, etc.)')
+parser.add_argument('--model', type=str, default='GMU',
+                    help='name of the model to use (GMU, Concatenate)')
 
 # Tasks
-parser.add_argument('--dataset', type=str, default='meme_dataset',
-                    help='dataset to use (default: meme_dataset)')
+parser.add_argument('--dataset', type=str, default='mmimdb',
+                    help='dataset to use (default: mmimdb)')
 parser.add_argument('--data_path', type=str, default='data',
                     help='path for storing the dataset')
 
@@ -26,12 +26,14 @@ parser.add_argument('--mlp_dropout', type=float, default=0.0,
                     help='fully connected layers dropout')
 
 # Architecture
-parser.add_argument('--bert_model', type=str, default="bert-base-cased",
-                    help='pretrained bert model to use')
 parser.add_argument('--cnn_model', type=str, default="vgg16",
                     help='pretrained CNN to use for image feature extraction')
 parser.add_argument('--image_feature_size', type=int, default=4096,
                     help='image feature size extracted from pretrained CNN (default: 4096)')
+parser.add_argument('--text_embedding_size', type=int, default=300,
+                    help='text embedding size used for word2vec model (default: 300)')
+parser.add_argument('--hidden_size', type=int, default=512,
+                    help='hidden dimension size (default: 512)')
 
 # Tuning
 parser.add_argument('--batch_size', type=int, default=8, metavar='N',
@@ -42,8 +44,8 @@ parser.add_argument('--clip', type=float, default=0.8,
                     help='gradient clip value (default: 0.8)')
 parser.add_argument('--lr', type=float, default=2e-5,
                     help='initial learning rate (default: 2e-5)')
-parser.add_argument('--optim', type=str, default='AdamW',
-                    help='optimizer to use (default: AdamW)')
+parser.add_argument('--optim', type=str, default='Adam',
+                    help='optimizer to use (default: Adam)')
 parser.add_argument('--num_epochs', type=int, default=3,
                     help='number of epochs (default: 3)')
 parser.add_argument('--when', type=int, default=2,

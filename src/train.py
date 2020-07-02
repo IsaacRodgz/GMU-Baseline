@@ -76,7 +76,6 @@ def train_model(settings, hyp_params, train_loader, valid_loader, test_loader):
 
         for i_batch, data_batch in enumerate(train_loader):
             input_ids = data_batch["input_ids"]
-            attention_mask = data_batch["attention_mask"]
             targets = data_batch["label"]
             images = data_batch['image']
 
@@ -85,7 +84,6 @@ def train_model(settings, hyp_params, train_loader, valid_loader, test_loader):
             if hyp_params.use_cuda:
                 with torch.cuda.device(0):
                     input_ids = input_ids.cuda()
-                    attention_mask = attention_mask.cuda()
                     targets = targets.cuda()
                     images = images.cuda()
 
@@ -100,7 +98,6 @@ def train_model(settings, hyp_params, train_loader, valid_loader, test_loader):
 
             outputs = model(
                 input_ids=input_ids,
-                attention_mask=attention_mask,
                 feature_images=feature_images
             )
     
@@ -143,14 +140,12 @@ def train_model(settings, hyp_params, train_loader, valid_loader, test_loader):
         with torch.no_grad():
             for i_batch, data_batch in enumerate(loader):
                 input_ids = data_batch["input_ids"]
-                attention_mask = data_batch["attention_mask"]
                 targets = data_batch["label"]
                 images = data_batch['image']
 
                 if hyp_params.use_cuda:
                     with torch.cuda.device(0):
                         input_ids = input_ids.cuda()
-                        attention_mask = attention_mask.cuda()
                         targets = targets.cuda()
                         images = images.cuda()
 
@@ -165,7 +160,6 @@ def train_model(settings, hyp_params, train_loader, valid_loader, test_loader):
 
                 outputs = model(
                     input_ids=input_ids,
-                    attention_mask=attention_mask,
                     feature_images=feature_images
                 )
 

@@ -38,86 +38,46 @@ class GatedMultimodalLayer(nn.Module):
         z = self.sigmoid_f(torch.matmul(x, self.weight_sigmoid.t()))
 
         return z.view(z.size()[0],1)*h1 + (1-z).view(z.size()[0],1)*h2
+    
+    
+class MaxOut(nn.Module):
+    def __init__(self, input_dim, output_dim, num_units=2):
+        super(MaxOut, self).__init__()
+        self.fc1_list = nn.ModuleList([nn.Linear(input_dim, output_dim) for i in range(num_units)])
+
+    def forward(self, x): 
+
+        return self.maxout(x, self.fc1_list)
+
+    def maxout(self, x, layer_list):
+        max_output = layer_list[0](x)
+        for _, layer in enumerate(layer_list, start=1):
+            max_output = torch.max(max_output, layer(x))
+        return max_output
 
 
-class AverageBERTModel(nn.Module):
+class ConcatenateModel(nn.Module):
 
     def __init__(self, hyp_params):
 
-        super(AverageBERTModel, self).__init__()
-        self.bert = BertModel.from_pretrained(hyp_params.bert_model)
-        self.linear1 = nn.Linear(self.bert.config.hidden_size+hyp_params.image_feature_size, 512)
-        self.bn1 = nn.BatchNorm1d(512)
-        self.drop1 = nn.Dropout(p=hyp_params.mlp_dropout)
-        self.linear2 = nn.Linear(512, hyp_params.output_dim)
+        super(ConcatenateModel, self).__init__()
+        self.bn1 = nn.BatchNorm1d(hyp_params.text_embedding_size+hyp_params.image_feature_size)
+        self.linear1 = MaxOut(hyp_params.text_embedding_size+hyp_params.image_feature_size, hyp_params.hidden_size)
+        self.bn2 = nn.BatchNorm1d(hyp_params.hidden_size)
+        self.linear2 = MaxOut(hyp_params.hidden_size, hyp_params.hidden_size)
+        self.bn3 = nn.BatchNorm1d(hyp_params.hidden_size)
+        self.linear3 = nn.Linear(hyp_params.hidden_size, hyp_params.output_dim)
+        #self.drop1 = nn.Dropout(p=hyp_params.mlp_dropout)
 
-    def forward(self, input_ids, attention_mask, feature_images):
-
-        last_hidden, pooled_output = self.bert(
-            input_ids=input_ids,
-            attention_mask=attention_mask
-        )
-
-        mean_hidden = torch.mean(last_hidden, dim = 1)
-
-        x = torch.cat((mean_hidden, feature_images), dim=1)
-        x = self.drop1(x)
+    def forward(self, input_ids, feature_images):
+        
+        x = torch.cat((input_ids, feature_images), dim=1)
+        x = self.bn1(x)
         x = self.linear1(x)
-        x = self.bn1(x)
-        x = self.drop1(x)
+        x = self.bn2(x)
+        x = self.linear2(x)
+        x = self.bn3(x)
+        x = self.linear3(x)
 
-        return self.linear2(x)
-
-
-class ConcatBERTModel(nn.Module):
-
-    def __init__(self, hyp_params):
-
-        super(ConcatBERTModel, self).__init__()
-        self.bert = BertModel.from_pretrained(hyp_params.bert_model)
-        self.linear1 = nn.Linear(self.bert.config.hidden_size+hyp_params.image_feature_size, 512)
-        self.bn1 = nn.BatchNorm1d(512)
-        self.drop1 = nn.Dropout(p=hyp_params.mlp_dropout)
-        self.linear2 = nn.Linear(512, hyp_params.output_dim)
-
-    def forward(self, input_ids, attention_mask, feature_images):
-
-        _, pooled_output = self.bert(
-            input_ids=input_ids,
-            attention_mask=attention_mask
-        )
-
-        x = torch.cat((pooled_output, feature_images), dim=1)
-        x = self.drop1(x)
-        x = self.linear1(x)
-        x = self.bn1(x)
-        x = self.drop1(x)
-
-        return self.linear2(x)
-
-
-class GatedAverageBERTModel(nn.Module):
-
-    def __init__(self, hyp_params):
-
-        super(GatedAverageBERTModel, self).__init__()
-        self.bert = BertModel.from_pretrained(hyp_params.bert_model)
-        self.gated_linear1 = GatedMultimodalLayer(self.bert.config.hidden_size, hyp_params.image_feature_size, 512)
-        self.bn1 = nn.BatchNorm1d(512)
-        self.drop1 = nn.Dropout(p=hyp_params.mlp_dropout)
-        self.linear1 = nn.Linear(512, hyp_params.output_dim)
-
-    def forward(self, input_ids, attention_mask, feature_images):
-
-        last_hidden, pooled_output = self.bert(
-            input_ids=input_ids,
-            attention_mask=attention_mask
-        )
-
-        mean_hidden = torch.mean(last_hidden, dim = 1)
-
-        x = self.gated_linear1(mean_hidden, feature_images)
-        x = self.bn1(x)
-        x = self.drop1(x)
-
-        return self.linear1(x)
+        return nn.Sigmoid(x)
+    
