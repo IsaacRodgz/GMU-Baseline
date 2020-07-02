@@ -65,6 +65,9 @@ class MMIMDbDataset(Dataset):
             idx = idx.tolist()
 
         img_name = self.data_dict.iloc[idx,0]
+        #with open(img_name, 'rb') as f:
+        #    image = Image.open(f)
+        #    image.convert('RGB')
         image = Image.open(img_name).convert('RGB')
         
         label = self.data_dict.iloc[idx,1]

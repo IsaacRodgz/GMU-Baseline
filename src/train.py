@@ -194,9 +194,8 @@ def train_model(settings, hyp_params, train_loader, valid_loader, test_loader):
         scheduler.step(val_loss)
 
         val_acc, val_f1 = metrics(results, truths)
-        val_acc2 = multiclass_acc(results, truths)
         print("-"*50)
-        print('Epoch {:2d} | Time {:5.4f} sec | Train Loss {:5.4f} | Valid Loss {:5.4f} | Valid Acc {:5.4f} -- {:5.4f} | Valid f1-score {:5.4f}'.format(epoch, duration, train_loss, val_loss, val_acc, val_acc2, val_f1))
+        print('Epoch {:2d} | Time {:5.4f} sec | Train Loss {:5.4f} | Valid Loss {:5.4f} | Valid Acc {:5.4f} | Valid f1-score {:5.4f}'.format(epoch, duration, train_loss, val_loss, val_acc, val_f1))
         print("-"*50)
 
         if val_loss < best_valid:

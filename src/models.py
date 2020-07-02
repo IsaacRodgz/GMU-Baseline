@@ -67,6 +67,7 @@ class ConcatenateModel(nn.Module):
         self.linear2 = MaxOut(hyp_params.hidden_size, hyp_params.hidden_size)
         self.bn3 = nn.BatchNorm1d(hyp_params.hidden_size)
         self.linear3 = nn.Linear(hyp_params.hidden_size, hyp_params.output_dim)
+        self.sigmoid = nn.Sigmoid()
         #self.drop1 = nn.Dropout(p=hyp_params.mlp_dropout)
 
     def forward(self, input_ids, feature_images):
@@ -79,5 +80,5 @@ class ConcatenateModel(nn.Module):
         x = self.bn3(x)
         x = self.linear3(x)
 
-        return nn.Sigmoid(x)
+        return self.sigmoid(x)
     

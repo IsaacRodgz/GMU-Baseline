@@ -7,9 +7,16 @@ from sklearn.metrics import accuracy_score, f1_score
 
 
 def metrics(results, truths):
-    preds = results.view(-1).cpu().detach().numpy()
-    truth = truths.view(-1).cpu().detach().numpy()
-    
+    preds = results.cpu().detach().numpy()
+    truth = truths.cpu().detach().numpy()
+    '''
+    print(preds.shape)
+    print(truth.shape)
+    print("------------")
+    print(preds[0])
+    print(truth[0])
+    input()
+    '''
     preds = np.where(preds > 0.5, 1, 0)
     truth = np.where(truth > 0.5, 1, 0)
 
