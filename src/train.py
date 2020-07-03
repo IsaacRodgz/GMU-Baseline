@@ -8,6 +8,8 @@ import numpy as np
 import time
 import sys
 
+from torch.utils.tensorboard import SummaryWriter
+
 from sklearn.metrics import classification_report
 from sklearn.metrics import confusion_matrix
 from sklearn.metrics import precision_recall_fscore_support
@@ -69,7 +71,10 @@ def train_model(settings, hyp_params, train_loader, valid_loader, test_loader):
         model.train()
         num_batches = hyp_params.n_train // hyp_params.batch_size
         proc_loss, proc_size = 0, 0
+        total_loss = 0.0
         losses = []
+        results = []
+        truths = []
         correct_predictions = 0
         n_examples = hyp_params.n_train
         start_time = time.time()
@@ -107,12 +112,16 @@ def train_model(settings, hyp_params, train_loader, valid_loader, test_loader):
                 preds = outputs
             loss = criterion(outputs, targets)
             preds_round = (preds > 0.5).float()
-            correct_predictions += torch.sum(preds_round == targets)
+            #correct_predictions += torch.sum(preds_round == targets)
             losses.append(loss.item())
             loss.backward()
             nn.utils.clip_grad_norm_(model.parameters(), hyp_params.clip)
             optimizer.step()
             #optimizer.zero_grad()
+            
+            total_loss += loss.item() * hyp_params.batch_size
+            results.append(preds)
+            truths.append(targets)
 
             proc_loss += loss * hyp_params.batch_size
             proc_size += hyp_params.batch_size
@@ -124,8 +133,11 @@ def train_model(settings, hyp_params, train_loader, valid_loader, test_loader):
                       format(epoch, i_batch, num_batches, elapsed_time * 1000 / hyp_params.log_interval, avg_loss, train_acc, train_f1))
                 proc_loss, proc_size = 0, 0
                 start_time = time.time()
-
-        return correct_predictions.double() / n_examples, np.mean(losses)
+        
+        avg_loss = total_loss / hyp_params.n_train
+        results = torch.cat(results)
+        truths = torch.cat(truths)
+        return results, truths, avg_loss
 
     def evaluate(model, feature_extractor, criterion, test=False):
         model.eval()
@@ -169,7 +181,7 @@ def train_model(settings, hyp_params, train_loader, valid_loader, test_loader):
                     preds = outputs
                 
                 total_loss += criterion(outputs, targets).item() * hyp_params.batch_size
-                correct_predictions += torch.sum(preds == targets)
+                #correct_predictions += torch.sum(preds == targets)
 
                 # Collect the results into dictionary
                 results.append(preds)
@@ -182,9 +194,10 @@ def train_model(settings, hyp_params, train_loader, valid_loader, test_loader):
         return results, truths, avg_loss
 
     best_valid = 1e8
+    writer = SummaryWriter('runs/'+hyp_params.model)
     for epoch in range(1, hyp_params.num_epochs+1):
         start = time.time()
-        train_acc, train_loss = train(model, feature_extractor, optimizer, criterion)
+        train_results, train_truths, train_loss = train(model, feature_extractor, optimizer, criterion)
         results, truths, val_loss = evaluate(model, feature_extractor, criterion, test=False)
         #if test_loader is not None:
         #    results, truths, val_loss = evaluate(model, feature_extractor, criterion, test=True)
@@ -193,10 +206,19 @@ def train_model(settings, hyp_params, train_loader, valid_loader, test_loader):
         duration = end-start
         scheduler.step(val_loss)
 
+        train_acc, train_f1 = metrics(train_results, train_truths)
         val_acc, val_f1 = metrics(results, truths)
         print("-"*50)
         print('Epoch {:2d} | Time {:5.4f} sec | Train Loss {:5.4f} | Valid Loss {:5.4f} | Valid Acc {:5.4f} | Valid f1-score {:5.4f}'.format(epoch, duration, train_loss, val_loss, val_acc, val_f1))
         print("-"*50)
+        
+        writer.add_scalar('Loss/train', train_loss, epoch)
+        writer.add_scalar('Accuracy/train', train_acc, epoch)
+        writer.add_scalar('F1-score/train', train_f1, epoch)
+
+        writer.add_scalar('Loss/val', val_loss, epoch)
+        writer.add_scalar('Accuracy/val', val_acc, epoch)
+        writer.add_scalar('F1-score/val', val_f1, epoch)
 
         if val_loss < best_valid:
             print(f"Saved model at pre_trained_models/{hyp_params.name}.pt!")
