@@ -102,14 +102,16 @@ test_data = get_data(args, dataset, 'test')
 
 train_loader = DataLoader(train_data,
                         batch_size=args.batch_size,
-                        shuffle=True)
+                        shuffle=True,
+                        num_workers=6)
 valid_loader = DataLoader(valid_data,
                         batch_size=args.batch_size,
-                        shuffle=True)
+                        shuffle=True,
+                        num_workers=6)
 if test_data is None:
     test_loader = None
 else:
-    test_loader = DataLoader(test_data, batch_size=args.batch_size, shuffle=True)
+    test_loader = DataLoader(test_data, batch_size=args.batch_size, shuffle=True, num_workers=6)
 
 print('Finish loading the data....')
 
