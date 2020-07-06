@@ -63,20 +63,23 @@ class ConcatenateModel(nn.Module):
         super(ConcatenateModel, self).__init__()
         self.bn1 = nn.BatchNorm1d(hyp_params.text_embedding_size+hyp_params.image_feature_size)
         self.linear1 = MaxOut(hyp_params.text_embedding_size+hyp_params.image_feature_size, hyp_params.hidden_size)
+        self.drop1 = nn.Dropout(p=hyp_params.mlp_dropout)
         self.bn2 = nn.BatchNorm1d(hyp_params.hidden_size)
         self.linear2 = MaxOut(hyp_params.hidden_size, hyp_params.hidden_size)
+        self.drop2 = nn.Dropout(p=hyp_params.mlp_dropout)
         self.bn3 = nn.BatchNorm1d(hyp_params.hidden_size)
         self.linear3 = nn.Linear(hyp_params.hidden_size, hyp_params.output_dim)
         self.sigmoid = nn.Sigmoid()
-        #self.drop1 = nn.Dropout(p=hyp_params.mlp_dropout)
 
     def forward(self, input_ids, feature_images):
         
         x = torch.cat((input_ids, feature_images), dim=1)
         x = self.bn1(x)
         x = self.linear1(x)
+        x = self.drop1(x)
         x = self.bn2(x)
         x = self.linear2(x)
+        x = self.drop2(x)
         x = self.bn3(x)
         x = self.linear3(x)
 

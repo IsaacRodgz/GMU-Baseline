@@ -2,6 +2,7 @@ from src.dataset import *
 from torchvision import transforms
 import torch
 import os
+from datetime import datetime
 
 
 def get_data(args, dataset, split='train'):
@@ -40,3 +41,16 @@ def load_model(args, name=''):
     name = name if len(name) > 0 else 'default_model'
     model = torch.load(f'pre_trained_models/{name}.pt')
     return model
+
+def create_run_name(args):
+    
+    run = '{}={}'.format('nw', args.model)
+    run += '_{}={}'.format('ds', args.dataset)
+    run += '_{}={}'.format('op', args.optim)
+    run += '_{}={}'.format('ep', args.num_epochs)
+    run += '_{}={}'.format('bs', args.batch_size)
+    run += '_{}={}'.format('do', args.mlp_dropout)
+    run += '_{}={}'.format('lr', args.lr)
+    run += '_{}'.format(datetime.now().strftime("%m-%d-%Y-%H-%M-%S"))
+
+    return run
