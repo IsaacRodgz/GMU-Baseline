@@ -20,10 +20,13 @@ def metrics(results, truths):
     preds = np.where(preds > 0.5, 1, 0)
     truth = np.where(truth > 0.5, 1, 0)
 
-    f_score = f1_score(truth, preds, average='micro')
+    f_score_micro = f1_score(truth, preds, average='micro')
+    f_score_macro = f1_score(truth, preds, average='macro')
+    f_score_weighted = f1_score(truth, preds, average='weighted')
+    f_score_samples = f1_score(truth, preds, average='samples')
     accuarcy = accuracy_score(truth, preds)
 
-    return accuarcy, f_score
+    return accuarcy, f_score_micro, f_score_macro, f_score_weighted, f_score_samples
 
 
 def multiclass_acc(results, truths):

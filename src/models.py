@@ -2,40 +2,35 @@ import math
 import torch
 from torch import nn
 import torch.nn.functional as F
-from transformers import BertModel
+#from .module import Module
+
+
+class dotdict(dict):
+    """dot.notation access to dictionary attributes"""
+    __getattr__ = dict.get
+    __setattr__ = dict.__setitem__
+    __delattr__ = dict.__delitem__
 
 
 class GatedMultimodalLayer(nn.Module):
     """ Gated Multimodal Layer based on 'Gated multimodal networks, Arevalo1 et al.' (https://arxiv.org/abs/1702.01992) """
     def __init__(self, size_in1, size_in2, size_out):
-        super().__init__()
+        super(GatedMultimodalLayer, self).__init__()
         self.size_in1, self.size_in2, self.size_out = size_in1, size_in2, size_out
-
-        # Weights hidden state modality 1
-        weights_hidden1 = torch.Tensor(size_out, size_in1)
-        self.weights_hidden1 = nn.Parameter(weights_hidden1)
-
-        # Weights hidden state modality 2
-        weights_hidden2 = torch.Tensor(size_out, size_in2)
-        self.weights_hidden2 = nn.Parameter(weights_hidden2)
-
-        # Weight for sigmoid
-        weight_sigmoid = torch.Tensor(size_out*2)
-        self.weight_sigmoid = nn.Parameter(weight_sigmoid)
-
-        # initialize weights
-        nn.init.kaiming_uniform_(self.weights_hidden1, a=math.sqrt(5))
-        nn.init.kaiming_uniform_(self.weights_hidden2, a=math.sqrt(5))
+        
+        self.hidden1 = nn.Linear(size_in1, size_out, bias=False)
+        self.hidden2 = nn.Linear(size_in2, size_out, bias=False)
+        self.hidden_sigmoid = nn.Linear(size_out*2, 1, bias=False)
 
         # Activation functions
         self.tanh_f = nn.Tanh()
         self.sigmoid_f = nn.Sigmoid()
 
     def forward(self, x1, x2):
-        h1 = self.tanh_f(torch.mm(x1, self.weights_hidden1.t()))
-        h2 = self.tanh_f(torch.mm(x2, self.weights_hidden2.t()))
+        h1 = self.tanh_f(self.hidden1(x1))
+        h2 = self.tanh_f(self.hidden1(x2))
         x = torch.cat((h1, h2), dim=1)
-        z = self.sigmoid_f(torch.matmul(x, self.weight_sigmoid.t()))
+        z = self.sigmoid_f(self.hidden_sigmoid(x))
 
         return z.view(z.size()[0],1)*h1 + (1-z).view(z.size()[0],1)*h2
     
@@ -56,24 +51,32 @@ class MaxOut(nn.Module):
         return max_output
 
 
-class ConcatenateModel(nn.Module):
+class MLPGenreClassifierModel(nn.Module):
 
     def __init__(self, hyp_params):
 
-        super(ConcatenateModel, self).__init__()
-        self.bn1 = nn.BatchNorm1d(hyp_params.text_embedding_size+hyp_params.image_feature_size)
-        self.linear1 = MaxOut(hyp_params.text_embedding_size+hyp_params.image_feature_size, hyp_params.hidden_size)
+        super(MLPGenreClassifierModel, self).__init__()
+        if hyp_params.text_embedding_size == hyp_params.image_feature_size:
+            self.bn1 = nn.BatchNorm1d(hyp_params.hidden_size)
+            self.linear1 = MaxOut(hyp_params.hidden_size, hyp_params.hidden_size)
+        else:
+            self.bn1 = nn.BatchNorm1d(hyp_params.text_embedding_size+hyp_params.image_feature_size)
+            self.linear1 = MaxOut(hyp_params.text_embedding_size+hyp_params.image_feature_size, hyp_params.hidden_size)
         self.drop1 = nn.Dropout(p=hyp_params.mlp_dropout)
+        
         self.bn2 = nn.BatchNorm1d(hyp_params.hidden_size)
         self.linear2 = MaxOut(hyp_params.hidden_size, hyp_params.hidden_size)
         self.drop2 = nn.Dropout(p=hyp_params.mlp_dropout)
+        
         self.bn3 = nn.BatchNorm1d(hyp_params.hidden_size)
         self.linear3 = nn.Linear(hyp_params.hidden_size, hyp_params.output_dim)
         self.sigmoid = nn.Sigmoid()
 
-    def forward(self, input_ids, feature_images):
-        
-        x = torch.cat((input_ids, feature_images), dim=1)
+    def forward(self, input_ids, feature_images=None):
+        if feature_images is None:
+            x = input_ids
+        else:
+            x = torch.cat((input_ids, feature_images), dim=1)
         x = self.bn1(x)
         x = self.linear1(x)
         x = self.drop1(x)
@@ -85,3 +88,68 @@ class ConcatenateModel(nn.Module):
 
         return self.sigmoid(x)
     
+
+class ConcatenateModel(nn.Module):
+
+    def __init__(self, hyp_params):
+
+        super(ConcatenateModel, self).__init__()
+        self.linear1 = MaxOut(hyp_params.text_embedding_size+hyp_params.image_feature_size, hyp_params.hidden_size)
+        self.bn1 = nn.BatchNorm1d(hyp_params.hidden_size)
+        self.drop1 = nn.Dropout(p=hyp_params.mlp_dropout)
+
+        self.linear2 = MaxOut(hyp_params.hidden_size, hyp_params.hidden_size)
+        self.bn2 = nn.BatchNorm1d(hyp_params.hidden_size)
+        self.drop2 = nn.Dropout(p=hyp_params.mlp_dropout)
+        
+        self.linear3 = nn.Linear(hyp_params.hidden_size, hyp_params.output_dim)
+        self.sigmoid = nn.Sigmoid()
+
+    def forward(self, input_ids, feature_images):
+        
+        x = torch.cat((input_ids, feature_images), dim=1)
+        x = self.drop1(x)
+        x = self.linear1(x)
+        x = self.bn1(x)
+        x = self.drop2(x)
+        x = self.linear2(x)
+        x = self.bn2(x)
+        x = self.linear3(x)
+
+        return self.sigmoid(x)
+    
+    
+class GMUModel(nn.Module):
+
+    def __init__(self, hyp_params):
+
+        super(GMUModel, self).__init__()
+        self.hyp_params = {}
+        self.hyp_params['text_embedding_size'] = hyp_params.hidden_size
+        self.hyp_params['image_feature_size'] = hyp_params.hidden_size
+        self.hyp_params['hidden_size'] = hyp_params.hidden_size
+        self.hyp_params['output_dim'] = hyp_params.output_dim
+        self.hyp_params['mlp_dropout'] = hyp_params.mlp_dropout
+        self.hyp_params = dotdict(self.hyp_params)
+        
+        self.visual_mlp = torch.nn.Sequential(
+            nn.BatchNorm1d(hyp_params.image_feature_size),
+            nn.Linear(hyp_params.image_feature_size, hyp_params.hidden_size)
+        )
+        self.textual_mlp = torch.nn.Sequential(
+            nn.BatchNorm1d(hyp_params.text_embedding_size),
+            nn.Linear(hyp_params.text_embedding_size, hyp_params.hidden_size)
+        )
+        
+        self.gmu = GatedMultimodalLayer(hyp_params.hidden_size, hyp_params.hidden_size, hyp_params.hidden_size)
+        
+        self.logistic_mlp = MLPGenreClassifierModel(self.hyp_params)
+
+    def forward(self, input_ids, feature_images):
+        
+        x_v = self.visual_mlp(feature_images)
+        x_t = self.textual_mlp(input_ids)
+        x = self.gmu(x_v, x_t)
+        
+
+        return self.logistic_mlp(x)

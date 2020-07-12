@@ -32,12 +32,13 @@ def get_data(args, dataset, split='train'):
     return data
 
 
-def save_model(args, model, name=''):
+def save_model(model, name=''):
+    print(model)
     name = name if len(name) > 0 else 'default_model'
     torch.save(model, f'pre_trained_models/{name}.pt')
 
 
-def load_model(args, name=''):
+def load_model(name=''):
     name = name if len(name) > 0 else 'default_model'
     model = torch.load(f'pre_trained_models/{name}.pt')
     return model
@@ -51,6 +52,8 @@ def create_run_name(args):
     run += '_{}={}'.format('bs', args.batch_size)
     run += '_{}={}'.format('do', args.mlp_dropout)
     run += '_{}={}'.format('lr', args.lr)
+    run += '_{}={}'.format('wh', args.when)
+    run += '_{}={}'.format('cl', args.clip)
     run += '_{}'.format(datetime.now().strftime("%m-%d-%Y-%H-%M-%S"))
 
     return run

@@ -2,6 +2,8 @@ from src import models
 from src.utils import *
 import torch.optim as optim
 from torch.optim.lr_scheduler import ReduceLROnPlateau
+from torch.optim.lr_scheduler import StepLR
+from torch.optim.lr_scheduler import LambdaLR
 from torch import nn
 import torch
 import numpy as np
@@ -30,21 +32,19 @@ os.environ["CUDA_VISIBLE_DEVICES"]="1,2"
 def initiate(hyp_params, train_loader, valid_loader, test_loader=None):
     model = getattr(models, hyp_params.model+'Model')(hyp_params)
 
-    feature_extractor = torch.hub.load('pytorch/vision:v0.6.0', hyp_params.cnn_model, pretrained=True)
-    for param in feature_extractor.features.parameters():
-        param.requires_grad = False
-
     if hyp_params.use_cuda:
         model = model.cuda()
-        feature_extractor = feature_extractor.cuda()
 
     optimizer = getattr(optim, hyp_params.optim)(model.parameters(), lr=hyp_params.lr)
     criterion = getattr(nn, hyp_params.criterion)()
 
-    scheduler = ReduceLROnPlateau(optimizer, mode='min', patience=hyp_params.when, factor=0.1, verbose=True)
+    lambda1 = lambda epoch: 0.95 ** epoch
+    #scheduler = ReduceLROnPlateau(optimizer, mode='min', patience=hyp_params.when, factor=0.1, verbose=True)
+    scheduler = StepLR(optimizer, step_size=hyp_params.when, gamma=0.1)
+    #scheduler = LambdaLR(optimizer, step_size=hyp_params.when, gamma=0.5)
+    
 
     settings = {'model': model,
-                'feature_extractor': feature_extractor,
                 'optimizer': optimizer,
                 'criterion': criterion,
                 'scheduler': scheduler}
@@ -59,14 +59,13 @@ def initiate(hyp_params, train_loader, valid_loader, test_loader=None):
 
 def train_model(settings, hyp_params, train_loader, valid_loader, test_loader):
     model = settings['model']
-    feature_extractor = settings['feature_extractor']
     optimizer = settings['optimizer']
     criterion = settings['criterion']
 
     scheduler = settings['scheduler']
 
 
-    def train(model, feature_extractor, optimizer, criterion):
+    def train(model, optimizer, criterion):
         epoch_loss = 0
         model.train()
         num_batches = hyp_params.n_train // hyp_params.batch_size
@@ -95,15 +94,9 @@ def train_model(settings, hyp_params, train_loader, valid_loader, test_loader):
             if images.size()[0] != input_ids.size()[0]:
                 continue
 
-            with torch.no_grad():
-                feature_images = feature_extractor.features(images)
-                feature_images = feature_extractor.avgpool(feature_images)
-                feature_images = torch.flatten(feature_images, 1)
-                feature_images = feature_extractor.classifier[0](feature_images)
-
             outputs = model(
                 input_ids=input_ids,
-                feature_images=feature_images
+                feature_images=images
             )
     
             if hyp_params.dataset == 'meme_dataset':
@@ -112,12 +105,10 @@ def train_model(settings, hyp_params, train_loader, valid_loader, test_loader):
                 preds = outputs
             loss = criterion(outputs, targets)
             preds_round = (preds > 0.5).float()
-            #correct_predictions += torch.sum(preds_round == targets)
             losses.append(loss.item())
             loss.backward()
             nn.utils.clip_grad_norm_(model.parameters(), hyp_params.clip)
             optimizer.step()
-            #optimizer.zero_grad()
             
             total_loss += loss.item() * hyp_params.batch_size
             results.append(preds)
@@ -126,11 +117,11 @@ def train_model(settings, hyp_params, train_loader, valid_loader, test_loader):
             proc_loss += loss * hyp_params.batch_size
             proc_size += hyp_params.batch_size
             if i_batch % hyp_params.log_interval == 0 and i_batch > 0:
-                train_acc, train_f1 = metrics(preds_round, targets)
+                train_acc, train_f1_micro, train_f1_macro, train_f1_weighted, train_f1_samples = metrics(preds_round, targets)
                 avg_loss = proc_loss / proc_size
                 elapsed_time = time.time() - start_time
-                print('Epoch {:2d} | Batch {:3d}/{:3d} | Time/Batch(ms) {:5.2f} | Train Loss {:5.4f} | Train Acc {:5.4f} | Train f1-score {:5.4f}'.
-                      format(epoch, i_batch, num_batches, elapsed_time * 1000 / hyp_params.log_interval, avg_loss, train_acc, train_f1))
+                print('Epoch {:2d} | Batch {:3d}/{:3d} | Time/Batch(ms) {:5.2f} | Train Loss {:5.4f} | Train Acc {:5.4f} | Train f1-samples {:5.4f}'.
+                      format(epoch, i_batch, num_batches, elapsed_time * 1000 / hyp_params.log_interval, avg_loss, train_acc, train_f1_samples))
                 proc_loss, proc_size = 0, 0
                 start_time = time.time()
         
@@ -139,7 +130,7 @@ def train_model(settings, hyp_params, train_loader, valid_loader, test_loader):
         truths = torch.cat(truths)
         return results, truths, avg_loss
 
-    def evaluate(model, feature_extractor, criterion, test=False):
+    def evaluate(model, criterion, test=False):
         model.eval()
         loader = test_loader if test else valid_loader
         total_loss = 0.0
@@ -164,15 +155,9 @@ def train_model(settings, hyp_params, train_loader, valid_loader, test_loader):
                 if images.size()[0] != input_ids.size()[0]:
                     continue
 
-                with torch.no_grad():
-                    feature_images = feature_extractor.features(images)
-                    feature_images = feature_extractor.avgpool(feature_images)
-                    feature_images = torch.flatten(feature_images, 1)
-                    feature_images = feature_extractor.classifier[0](feature_images)
-
                 outputs = model(
                     input_ids=input_ids,
-                    feature_images=feature_images
+                    feature_images=images
                 )
 
                 if hyp_params.dataset == 'meme_dataset':
@@ -198,40 +183,53 @@ def train_model(settings, hyp_params, train_loader, valid_loader, test_loader):
     writer = SummaryWriter('runs/'+run_name)
     for epoch in range(1, hyp_params.num_epochs+1):
         start = time.time()
-        train_results, train_truths, train_loss = train(model, feature_extractor, optimizer, criterion)
-        results, truths, val_loss = evaluate(model, feature_extractor, criterion, test=False)
+        train_results, train_truths, train_loss = train(model, optimizer, criterion)
+        results, truths, val_loss = evaluate(model, criterion, test=False)
         #if test_loader is not None:
         #    results, truths, val_loss = evaluate(model, feature_extractor, criterion, test=True)
 
         end = time.time()
         duration = end-start
-        scheduler.step(val_loss)
 
-        train_acc, train_f1 = metrics(train_results, train_truths)
-        val_acc, val_f1 = metrics(results, truths)
+        train_acc, train_f1_micro, train_f1_macro, train_f1_weighted, train_f1_samples = metrics(train_results, train_truths)
+        val_acc, val_f1_micro, val_f1_macro, val_f1_weighted, val_f1_samples = metrics(results, truths)
+        
+        #scheduler.step(val_loss)
+        scheduler.step()
+        
         print("-"*50)
-        print('Epoch {:2d} | Time {:5.4f} sec | Train Loss {:5.4f} | Valid Loss {:5.4f} | Valid Acc {:5.4f} | Valid f1-score {:5.4f}'.format(epoch, duration, train_loss, val_loss, val_acc, val_f1))
+        print('Epoch {:2d} | Time {:5.4f} sec | Train Loss {:5.4f} | Valid Loss {:5.4f} | Valid Acc {:5.4f} | Valid f1-samples {:5.4f}'.format(epoch, duration, train_loss, val_loss, val_acc, val_f1_samples))
         print("-"*50)
         
         writer.add_scalar('Loss/train', train_loss, epoch)
         writer.add_scalar('Accuracy/train', train_acc, epoch)
-        writer.add_scalar('F1-score/train', train_f1, epoch)
+        writer.add_scalar('F1-micro/train', train_f1_micro, epoch)
+        writer.add_scalar('F1-macro/train', train_f1_macro, epoch)
+        writer.add_scalar('F1-weighted/train', train_f1_weighted, epoch)
+        writer.add_scalar('F1-samples/train', train_f1_samples, epoch)
 
         writer.add_scalar('Loss/val', val_loss, epoch)
         writer.add_scalar('Accuracy/val', val_acc, epoch)
-        writer.add_scalar('F1-score/val', val_f1, epoch)
+        writer.add_scalar('F1-micro/val', val_f1_micro, epoch)
+        writer.add_scalar('F1-macro/val', val_f1_macro, epoch)
+        writer.add_scalar('F1-weighted/val', val_f1_weighted, epoch)
+        writer.add_scalar('F1-samples/val', val_f1_samples, epoch)
 
         if val_loss < best_valid:
             print(f"Saved model at pre_trained_models/{hyp_params.name}.pt!")
-            save_model(hyp_params, model, name=hyp_params.name)
+            #save_model(model, name=hyp_params.name)
+            torch.save(model.state_dict(), f'pre_trained_models/{hyp_params.name}.pt')
             best_valid = val_loss
 
     if test_loader is not None:
-        model = load_model(hyp_params, name=hyp_params.name)
-        results, truths, val_loss = evaluate(model, feature_extractor, criterion, test=True)
-        test_acc, test_f1 = metrics(results, truths)
+        #model = load_model(name=hyp_params.name)
+        model = getattr(models, hyp_params.model+'Model')(hyp_params)
+        model.load_state_dict(torch.load(f'pre_trained_models/{hyp_params.name}.pt'))
+        model.eval()
+        results, truths, val_loss = evaluate(model, criterion, test=True)
+        test_acc, test_f1_micro, test_f1_macro, test_f1_weighted, test_f1_samples = metrics(results, truths)
         
-        print("\n\nTest Acc {:5.4f} | Test f1-score {:5.4f}".format(test_acc, test_f1))
+        print("\n\nTest Acc {:5.4f} | Test f1-micro {:5.4f} | Test f1-macro {:5.4f} | Test f1-weighted {:5.4f} | Test f1-samples {:5.4f}".format(test_acc, test_f1_micro, test_f1_macro, test_f1_weighted, test_f1_samples))
 
     sys.stdout.flush()
     

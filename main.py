@@ -38,8 +38,6 @@ parser.add_argument('--hidden_size', type=int, default=512,
 # Tuning
 parser.add_argument('--batch_size', type=int, default=8, metavar='N',
                     help='batch size (default: 8)')
-parser.add_argument('--max_token_length', type=int, default=50,
-                    help='max number of tokens per sentence (default: 50)')
 parser.add_argument('--clip', type=float, default=0.8,
                     help='gradient clip value (default: 0.8)')
 parser.add_argument('--lr', type=float, default=2e-5,
@@ -71,7 +69,7 @@ use_cuda = False
 
 output_dim_dict = {
     'meme_dataset': 2,
-    'mmimdb': 27
+    'mmimdb': 23
 }
 
 criterion_dict = {
@@ -103,15 +101,14 @@ test_data = get_data(args, dataset, 'test')
 train_loader = DataLoader(train_data,
                         batch_size=args.batch_size,
                         shuffle=True,
-                        num_workers=6)
+                        num_workers=0)
 valid_loader = DataLoader(valid_data,
                         batch_size=args.batch_size,
-                        shuffle=True,
-                        num_workers=6)
+                        num_workers=0)
 if test_data is None:
     test_loader = None
 else:
-    test_loader = DataLoader(test_data, batch_size=args.batch_size, shuffle=True, num_workers=6)
+    test_loader = DataLoader(test_data, batch_size=args.batch_size, num_workers=0)
 
 print('Finish loading the data....')
 
