@@ -78,14 +78,13 @@ class MaxOut(pl.LightningModule):
             max_output = torch.max(max_output, layer(x))
         return max_output
 
-
+    
 class MLPGenreClassifierModel(pl.LightningModule):
 
     def __init__(self, hyp_params, trial=None):
 
         super(MLPGenreClassifierModel, self).__init__()
         
-        self.save_hyperparameters()
         self.hyp_params = hyp_params
         self.trial = trial
         
@@ -93,18 +92,14 @@ class MLPGenreClassifierModel(pl.LightningModule):
             dropout = hyp_params.mlp_dropout
         else:
             dropout = trial.suggest_uniform("dropout", 0.0, 0.5)
-
-        if hyp_params.text_embedding_size == hyp_params.image_feature_size:
-            self.bn1 = nn.BatchNorm1d(hyp_params.hidden_size)
-            self.linear1 = MaxOut(hyp_params.hidden_size, hyp_params.hidden_size)
-        else:
-            self.bn1 = nn.BatchNorm1d(hyp_params.text_embedding_size+hyp_params.image_feature_size)
-            self.linear1 = MaxOut(hyp_params.text_embedding_size+hyp_params.image_feature_size, hyp_params.hidden_size)
-        self.drop1 = nn.Dropout(p=dropout)
+        
+        self.bn1 = nn.BatchNorm1d(hyp_params.hidden_size)
+        self.linear1 = MaxOut(hyp_params.hidden_size, hyp_params.hidden_size)
+        self.drop1 = nn.Dropout(p=hyp_params.mlp_dropout)
         
         self.bn2 = nn.BatchNorm1d(hyp_params.hidden_size)
         self.linear2 = MaxOut(hyp_params.hidden_size, hyp_params.hidden_size)
-        self.drop2 = nn.Dropout(p=dropout)
+        self.drop2 = nn.Dropout(p=hyp_params.mlp_dropout)
         
         self.bn3 = nn.BatchNorm1d(hyp_params.hidden_size)
         self.linear3 = nn.Linear(hyp_params.hidden_size, hyp_params.output_dim)
@@ -126,21 +121,54 @@ class MLPGenreClassifierModel(pl.LightningModule):
 
         return self.sigmoid(x)
     
+
+class GMUModel(pl.LightningModule):
+
+    def __init__(self, hyp_params, trial=None):
+
+        super(GMUModel, self).__init__()
+        
+        self.save_hyperparameters()
+        self.hyp_params = hyp_params
+        self.trial = trial
+        
+        self.visual_mlp = torch.nn.Sequential(
+            nn.BatchNorm1d(hyp_params.image_feature_size),
+            nn.Linear(hyp_params.image_feature_size, hyp_params.hidden_size)
+        )
+        self.textual_mlp = torch.nn.Sequential(
+            nn.BatchNorm1d(hyp_params.text_embedding_size),
+            nn.Linear(hyp_params.text_embedding_size, hyp_params.hidden_size)
+        )
+        
+        self.gmu = GatedMultimodalLayer(hyp_params.hidden_size, hyp_params.hidden_size, hyp_params.hidden_size)
+        
+        self.logistic_mlp = MLPGenreClassifierModel(self.hyp_params, trial)
+
+    def forward(self, input_ids, feature_images):
+        
+        x_v = self.visual_mlp(feature_images)
+        x_t = self.textual_mlp(input_ids)
+        x = self.gmu(x_v, x_t)
+        
+        return self.logistic_mlp(x)
+
+    
     def loss_function(self, outputs, targets):
         return self.hyp_params.criterion(outputs, targets)
     
     def configure_optimizers(self):
         if self.trial is None:
             lr = self.hyp_params.lr
-            gamma = 0.6813213
+            gamma = 0.504
             when = self.hyp_params.mlp_dropout
         else:
             lr = self.trial.suggest_loguniform('learning_rate', 1e-6, 0.1)
-            gamma = self.trial.suggest_uniform("sch_gamma", 0.1, 0.9)
+            gamma = self.trial.suggest_uniform("sch_gamma", 0.01, 0.95)
             when = self.trial.suggest_int("when", 1, 10)
 
         optimizer = getattr(optim, self.hyp_params.optim)(self.parameters(), lr=lr)
-        scheduler = StepLR(optimizer, step_size=when, gamma=0.1)
+        scheduler = StepLR(optimizer, step_size=when, gamma=gamma)
         return [optimizer], [scheduler]
     
     def training_step(self, batch, batch_idx):
@@ -337,8 +365,8 @@ def objective(trial):
     # final accuracy can be obtained after optimization. When using the default logger, the
     # final accuracy could be stored in an attribute of the `Trainer` instead.
     metrics_callback = MetricsCallback()
-    run_name = create_run_name(hyp_params)
-    logger = TensorBoardLogger(save_dir='runs_pl/', name=run_name)
+    run_name = create_run_name(args)
+    logger = TensorBoardLogger(save_dir='runs_pl_temp/', name=run_name)
     
     '''
     trainer = Trainer.from_argparse_args(args,
@@ -350,14 +378,14 @@ def objective(trial):
     '''
     trainer = pl.Trainer(gpus=1,
                          logger=logger,
-                         max_epochs=hyp_params.num_epochs,
-                         gradient_clip_val=hyp_params.clip,
+                         max_epochs=args.max_epochs,
+                         gradient_clip_val=trial.suggest_uniform("clip", 0.1, 0.9),
                          checkpoint_callback=checkpoint_callback,
                          early_stop_callback=PyTorchLightningPruningCallback(trial, monitor="val_f1_micro"),
                          callbacks=[metrics_callback],
                         )
     
-    mlp = MLPGenreClassifierModel(hyp_params, trial)
+    mlp = GMUModel(args, trial)
     trainer.fit(mlp)
 
     return metrics_callback.metrics[-1]["val_f1_micro"].item()
@@ -390,7 +418,7 @@ if __name__ == '__main__':
                         help='Load pretrained model for test evaluation')
     
     # add MODEL level args
-    parser = MLPGenreClassifierModel.add_model_specific_args(parser)
+    parser = GMUModel.add_model_specific_args(parser)
     
     # add TRAINER level args
     parser.add_argument('--gpus', type=int, default=1)
@@ -445,8 +473,8 @@ if __name__ == '__main__':
     
     else:
         if args.test:
-            num = 48
-            model = MLPGenreClassifierModel.load_from_checkpoint(f'pre_trained_models/MLPGenreClassifier_{num}.ckpt')
+            num = 114
+            model = GMUModel.load_from_checkpoint(f'pre_trained_models/GMU_{num}.ckpt')
             
             trainer = pl.Trainer(gpus=args.gpus)
             
@@ -473,7 +501,7 @@ if __name__ == '__main__':
                                  checkpoint_callback=checkpoint_callback
                                 )
 
-            mlp = MLPGenreClassifierModel(args)
+            mlp = GMUModel(args)
 
             trainer.fit(mlp)
 

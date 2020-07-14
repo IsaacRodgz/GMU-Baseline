@@ -151,5 +151,4 @@ class GMUModel(nn.Module):
         x_t = self.textual_mlp(input_ids)
         x = self.gmu(x_v, x_t)
         
-
         return self.logistic_mlp(x)
