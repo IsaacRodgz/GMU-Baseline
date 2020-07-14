@@ -473,7 +473,7 @@ if __name__ == '__main__':
     
     else:
         if args.test:
-            num = 114
+            num = 165
             model = GMUModel.load_from_checkpoint(f'pre_trained_models/GMU_{num}.ckpt')
             
             trainer = pl.Trainer(gpus=args.gpus)

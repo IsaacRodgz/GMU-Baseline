@@ -445,7 +445,7 @@ if __name__ == '__main__':
     
     else:
         if args.test:
-            num = 48
+            num = 44
             model = MLPGenreClassifierModel.load_from_checkpoint(f'pre_trained_models/MLPGenreClassifier_{num}.ckpt')
             
             trainer = pl.Trainer(gpus=args.gpus)
