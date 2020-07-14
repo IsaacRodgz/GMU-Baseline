@@ -48,12 +48,12 @@ def create_run_name(args):
     run = '{}={}'.format('nw', args.model)
     run += '_{}={}'.format('ds', args.dataset)
     run += '_{}={}'.format('op', args.optim)
-    run += '_{}={}'.format('ep', args.num_epochs)
+    run += '_{}={}'.format('ep', args.max_epochs)
     run += '_{}={}'.format('bs', args.batch_size)
     run += '_{}={}'.format('do', args.mlp_dropout)
     run += '_{}={}'.format('lr', args.lr)
     run += '_{}={}'.format('wh', args.when)
-    run += '_{}={}'.format('cl', args.clip)
+    run += '_{}={}'.format('cl', args.gradient_clip_val)
     run += '_{}'.format(datetime.now().strftime("%m-%d-%Y-%H-%M-%S"))
 
     return run

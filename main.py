@@ -38,13 +38,13 @@ parser.add_argument('--hidden_size', type=int, default=512,
 # Tuning
 parser.add_argument('--batch_size', type=int, default=8, metavar='N',
                     help='batch size (default: 8)')
-parser.add_argument('--clip', type=float, default=0.8,
+parser.add_argument('--gradient_clip_val', type=float, default=0.8,
                     help='gradient clip value (default: 0.8)')
 parser.add_argument('--lr', type=float, default=2e-5,
                     help='initial learning rate (default: 2e-5)')
 parser.add_argument('--optim', type=str, default='Adam',
                     help='optimizer to use (default: Adam)')
-parser.add_argument('--num_epochs', type=int, default=3,
+parser.add_argument('--max_epochs', type=int, default=3,
                     help='number of epochs (default: 3)')
 parser.add_argument('--when', type=int, default=2,
                     help='when to decay learning rate (default: 2)')

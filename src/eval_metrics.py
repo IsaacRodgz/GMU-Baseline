@@ -20,10 +20,10 @@ def metrics(results, truths):
     preds = np.where(preds > 0.5, 1, 0)
     truth = np.where(truth > 0.5, 1, 0)
 
-    f_score_micro = f1_score(truth, preds, average='micro')
-    f_score_macro = f1_score(truth, preds, average='macro')
-    f_score_weighted = f1_score(truth, preds, average='weighted')
-    f_score_samples = f1_score(truth, preds, average='samples')
+    f_score_micro = f1_score(truth, preds, average='micro', zero_division=0)
+    f_score_macro = f1_score(truth, preds, average='macro', zero_division=0)
+    f_score_weighted = f1_score(truth, preds, average='weighted', zero_division=0)
+    f_score_samples = f1_score(truth, preds, average='samples', zero_division=0)
     accuarcy = accuracy_score(truth, preds)
 
     return accuarcy, f_score_micro, f_score_macro, f_score_weighted, f_score_samples
