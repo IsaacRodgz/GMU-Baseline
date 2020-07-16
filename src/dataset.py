@@ -20,20 +20,13 @@ class MMIMDbDataset(Dataset):
         """
 
         # Load data
-        self.full_data_path = os.path.join(root_dir, dataset)
+        self.full_data_path = os.path.join(root_dir, dataset)+'/data_word2vec'
         #self.embeddings_path = self.full_data_path+'/word2vec_emb_'+split+'.npy'
         #self.vgg_features_path = self.full_data_path+'/vgg_features_'+split+'.npy'
         #self.labels_path = self.full_data_path+'/labels_'+split+'.npy'
-        self.embeddings = load(self.full_data_path+'/word2vec_emb_'+split+'.npy')
-        self.vgg_features = load(self.full_data_path+'/vgg_features_'+split+'.npy')
+        self.embeddings = load(self.full_data_path+'/w2v_'+split+'.npy')
+        self.vgg_features = load(self.full_data_path+'/vgg_'+split+'.npy')
         self.labels = load(self.full_data_path+'/labels_'+split+'.npy')
-        
-        if split == 'train':
-            self.data_len = 15552
-        elif split == 'dev':
-            self.data_len = 2608
-        else:
-            self.data_len = 7799
         
     def __len__(self):
         #return self.data_len
@@ -49,7 +42,7 @@ class MMIMDbDataset(Dataset):
         visual_feature = self.vgg_features[idx]
         labels = self.labels[idx]
 
-        sample = {'image': visual_feature,
+        sample = {'image': torch.FloatTensor(visual_feature),
                   'input_ids': text_feature,
                   "label": torch.FloatTensor(labels)}
 

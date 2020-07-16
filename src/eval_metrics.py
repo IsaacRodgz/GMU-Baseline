@@ -9,14 +9,7 @@ from sklearn.metrics import accuracy_score, f1_score
 def metrics(results, truths):
     preds = results.cpu().detach().numpy()
     truth = truths.cpu().detach().numpy()
-    '''
-    print(preds.shape)
-    print(truth.shape)
-    print("------------")
-    print(preds[0])
-    print(truth[0])
-    input()
-    '''
+
     preds = np.where(preds > 0.5, 1, 0)
     truth = np.where(truth > 0.5, 1, 0)
 
@@ -27,6 +20,21 @@ def metrics(results, truths):
     accuarcy = accuracy_score(truth, preds)
 
     return accuarcy, f_score_micro, f_score_macro, f_score_weighted, f_score_samples
+
+
+def report_per_class(results, truths):
+    preds = results.cpu().detach().numpy()
+    truth = truths.cpu().detach().numpy()
+
+    preds = np.where(preds > 0.5, 1, 0)
+    truth = np.where(truth > 0.5, 1, 0)
+    
+    report = classification_report(truth, preds, zero_division=0, output_dict = True)
+    
+    class_labels = [k for k in report.keys() if k not in ['micro avg', 'macro avg', 'weighted avg', 'samples avg']]
+    scores_list = [report[v]['f1-score'] for v in class_labels]
+    
+    return np.array(scores_list)
 
 
 def multiclass_acc(results, truths):

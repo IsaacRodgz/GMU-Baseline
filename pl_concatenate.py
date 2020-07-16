@@ -40,29 +40,6 @@ class dotdict(dict):
     __delattr__ = dict.__delitem__
 
 
-class GatedMultimodalLayer(pl.LightningModule):
-    """ Gated Multimodal Layer based on 'Gated multimodal networks, Arevalo1 et al.' (https://arxiv.org/abs/1702.01992) """
-    def __init__(self, size_in1, size_in2, size_out):
-        super(GatedMultimodalLayer, self).__init__()
-        self.size_in1, self.size_in2, self.size_out = size_in1, size_in2, size_out
-        
-        self.hidden1 = nn.Linear(size_in1, size_out, bias=False)
-        self.hidden2 = nn.Linear(size_in2, size_out, bias=False)
-        self.hidden_sigmoid = nn.Linear(size_out*2, 1, bias=False)
-
-        # Activation functions
-        self.tanh_f = nn.Tanh()
-        self.sigmoid_f = nn.Sigmoid()
-
-    def forward(self, x1, x2):
-        h1 = self.tanh_f(self.hidden1(x1))
-        h2 = self.tanh_f(self.hidden1(x2))
-        x = torch.cat((h1, h2), dim=1)
-        z = self.sigmoid_f(self.hidden_sigmoid(x))
-
-        return z.view(z.size()[0],1)*h1 + (1-z).view(z.size()[0],1)*h2
-    
-    
 class MaxOut(pl.LightningModule):
     def __init__(self, input_dim, output_dim, num_units=2):
         super(MaxOut, self).__init__()
@@ -132,7 +109,8 @@ class MLPGenreClassifierModel(pl.LightningModule):
     def configure_optimizers(self):
         if self.trial is None:
             lr = self.hyp_params.lr
-            gamma = 0.6813213
+            gamma = 0.856
+            #gamma = self.hyp_params.gamma
             when = self.hyp_params.mlp_dropout
         else:
             lr = self.trial.suggest_loguniform('learning_rate', 1e-6, 0.1)
@@ -239,19 +217,21 @@ class MLPGenreClassifierModel(pl.LightningModule):
             feature_images=images
         )
         
-        loss = self.loss_function(outputs, targets)
+        loss = self.loss_function(outputs.cpu(), targets.cpu())
         outputs = (outputs > 0.5).float()
         _, f1_micro, f1_macro, f1_weighted, f1_samples = metrics(outputs, targets)
         f1_micro = torch.from_numpy(np.array(f1_micro))
         f1_macro = torch.from_numpy(np.array(f1_macro))
         f1_weighted = torch.from_numpy(np.array(f1_weighted))
         f1_samples = torch.from_numpy(np.array(f1_samples))
+        f1_per_class = torch.from_numpy(report_per_class(outputs, targets))
         
         return {'test_loss': loss,
                 'test_f1_micro': f1_micro,
                 'test_f1_macro': f1_macro,
                 'test_f1_weighted': f1_weighted,
-                'test_f1_samples': f1_samples}
+                'test_f1_samples': f1_samples,
+                'test_f1_per_class': f1_per_class}
     
     def test_epoch_end(self, outputs):
         avg_loss = torch.stack([x['test_loss'] for x in outputs]).mean()
@@ -259,19 +239,9 @@ class MLPGenreClassifierModel(pl.LightningModule):
         avg_f1_macro = torch.stack([x['test_f1_macro'] for x in outputs]).mean()
         avg_f1_weighted = torch.stack([x['test_f1_weighted'] for x in outputs]).mean()
         avg_f1_samples = torch.stack([x['test_f1_samples'] for x in outputs]).mean()
+        avg_f1_per_class = torch.stack([x['test_f1_per_class'] for x in outputs]).mean(0)
         
-        '''
-        tensorboard_logs = {'loss/test': avg_loss,
-                            'f1_micro/test': avg_f1_micro,
-                            'f1_macro/test': avg_f1_macro,
-                            'f1_weighted/test': avg_f1_weighted,
-                            'f1_samples/test': avg_f1_samples}
-        '''
-        
-        #self.logger.experiment.add_scalar('f1-micro/val', avg_f1_micro, self.current_epoch+1)
-        #self.logger.experiment.add_scalar('f1-macro/val', avg_f1_macro, self.current_epoch+1)
-        #self.logger.experiment.add_scalar('f1-weighted/val', avg_f1_weighted, self.current_epoch+1)
-        #self.logger.experiment.add_scalar('f1-samples/val', avg_f1_samples, self.current_epoch+1)
+        print("f1-score per class: ", avg_f1_per_class)
         
         return {'val_loss': avg_loss,
                 'test_f1_micro': avg_f1_micro,
@@ -312,6 +282,8 @@ class MLPGenreClassifierModel(pl.LightningModule):
                             help='optimizer to use (default: Adam)')
         parser.add_argument('--when', type=int, default=2,
                             help='when to decay learning rate (default: 2)')
+        parser.add_argument('--gamma', type=int, default=0.5,
+                            help='Scheduler factor (default: 0.5)')
         return parser
 
 
@@ -337,8 +309,8 @@ def objective(trial):
     # final accuracy can be obtained after optimization. When using the default logger, the
     # final accuracy could be stored in an attribute of the `Trainer` instead.
     metrics_callback = MetricsCallback()
-    run_name = create_run_name(hyp_params)
-    logger = TensorBoardLogger(save_dir='runs_pl/', name=run_name)
+    run_name = create_run_name(args)
+    logger = TensorBoardLogger(save_dir='runs_pl_temp/', name=run_name)
     
     '''
     trainer = Trainer.from_argparse_args(args,
@@ -350,14 +322,14 @@ def objective(trial):
     '''
     trainer = pl.Trainer(gpus=1,
                          logger=logger,
-                         max_epochs=hyp_params.num_epochs,
-                         gradient_clip_val=hyp_params.clip,
+                         max_epochs=args.max_epochs,
+                         gradient_clip_val=args.gradient_clip_val,
                          checkpoint_callback=checkpoint_callback,
                          early_stop_callback=PyTorchLightningPruningCallback(trial, monitor="val_f1_micro"),
                          callbacks=[metrics_callback],
                         )
     
-    mlp = MLPGenreClassifierModel(hyp_params, trial)
+    mlp = MLPGenreClassifierModel(args, trial)
     trainer.fit(mlp)
 
     return metrics_callback.metrics[-1]["val_f1_micro"].item()
@@ -426,11 +398,19 @@ if __name__ == '__main__':
     args.dataset = dataset
     args.model = args.model.strip()
     args.output_dim = output_dim_dict.get(dataset)
-    args.criterion = getattr(nn, criterion_dict.get(dataset))()
+    #'''
+    label_weights = torch.FloatTensor([1.0,1.649177760375881,2.61128332300062,2.7060713138451655,
+    3.6737897950283473,3.9090487238979117,5.229050279329609,5.255146600124766,6.826580226904376,
+    6.843216896831844,6.9504950495049505,7.249569707401033,8.613496932515337,10.451612903225806,
+    10.690355329949238,12.388235294117647,13.287066246056783,14.37542662116041,16.74751491053678,
+    19.914893617021278,22.226912928759894,29.97864768683274,41.7029702970297])
+    #'''
+    args.criterion = getattr(nn, criterion_dict.get(dataset))(pos_weight=label_weights.cuda())
+    #args.criterion = getattr(nn, criterion_dict.get(dataset))()
     
     if args.search:
         study = optuna.create_study(direction="maximize", pruner=optuna.pruners.MedianPruner())
-        study.optimize(objective, n_trials=100, timeout=600)
+        study.optimize(objective, n_trials=100, timeout=None)
 
         print("Number of finished trials: {}".format(len(study.trials)))
 
@@ -445,8 +425,8 @@ if __name__ == '__main__':
     
     else:
         if args.test:
-            num = 44
-            model = MLPGenreClassifierModel.load_from_checkpoint(f'pre_trained_models/MLPGenreClassifier_{num}.ckpt')
+            num = 92
+            model = MLPGenreClassifierModel.load_from_checkpoint(f'pre_trained_models/{args.name}_{num}.ckpt')
             
             trainer = pl.Trainer(gpus=args.gpus)
             

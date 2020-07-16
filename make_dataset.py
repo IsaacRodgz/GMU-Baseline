@@ -18,6 +18,8 @@ import torch
 from torchvision import transforms
 from PIL import Image
 import numpy as np
+from numpy import save
+from numpy import asarray
 
 
 def normalizeText(text):
@@ -109,8 +111,6 @@ for i, file in enumerate(files):
             
             if len(data['plot']) > 0:
                 vocab_counts.extend(data['plot'])
-                #data['cover'] = resize_and_crop_image(im_file, img_size)
-                #Image.fromarray(data['cover'].save(im_file.split('/')[-1])
                 img = resize_and_crop_image(im_file, img_size)
                 img = preprocess(img)
                 img = img.unsqueeze(0)
@@ -122,16 +122,10 @@ for i, file in enumerate(files):
 
 logger.info('done reading files.')
 
+
 vocab_counts = OrderedDict(Counter(vocab_counts).most_common())
 vocab = ['_UNK_'] + [v for v in vocab_counts.keys()]
 googleword2vec = KeyedVectors.load_word2vec_format(word2vec_path, binary=True)
-#ix_to_word = dict(zip(range(len(vocab)), vocab))
-#word_to_ix = dict(zip(vocab, range(len(vocab))))
-#lookup = numpy.array([googleword2vec[v] for v in vocab if v in googleword2vec])
-#numpy.save('metadata.npy', {'ix_to_word': ix_to_word,
-#                            'word_to_ix': word_to_ix,
-#                            'vocab_size': len(vocab),
-#                            'lookup': lookup})
 
 
 # Define train, dev and test subsets
@@ -139,9 +133,11 @@ counts = OrderedDict(
     Counter([g for m in movies for g in m['genres']]).most_common())
 target_names = list(counts.keys())[:n_classes]
 
+
 le = MultiLabelBinarizer()
 Y = le.fit_transform([m['genres'] for m in movies])
 labels = numpy.nonzero(le.transform([[t] for t in target_names]))[1]
+
 
 B = numpy.copy(Y)
 rng = numpy.random.RandomState(rng_seed)
@@ -157,146 +153,86 @@ for l in labels[::-1]:
     train_idx.extend(t[n_test + n_dev:])
     B[t, :] = 0
 
+
 indices = numpy.concatenate([train_idx, dev_idx, test_idx])
 nsamples = len(indices)
 nsamples_train, nsamples_dev, nsamples_test = len(
     train_idx), len(dev_idx), len(test_idx)
+
 
 # Obtain feature vectors and text sequences
 sequences = []
 X = numpy.zeros((indices.shape[0], textual_dim), dtype='float32')
 for i, idx in enumerate(indices):
     words = movies[idx]['plot']
-    #sequences.append([word_to_ix[w] if w in vocab else unk_idx for w in words])
     X[i] = numpy.array([googleword2vec[w]
                         for w in words if w in googleword2vec]).mean(axis=0)
 
 del googleword2vec
 
-# get n-grams representation
-'''
-sentences = [' '.join(m['plot']) for m in movies]
-ngram_vectorizer = TfidfVectorizer(
-    analyzer='char', ngram_range=(3, 3), min_df=2)
-ngrams_feats = ngram_vectorizer.fit_transform(sentences).astype('float32')
-word_vectorizer = TfidfVectorizer(min_df=10)
-wordgrams_feats = word_vectorizer.fit_transform(sentences).astype('float32')
-'''
 
-# Store data in the hdf5 file
-f_train = h5py.File('multimodal_imdb_train.hdf5', mode='w')
-f_dev = h5py.File('multimodal_imdb_dev.hdf5', mode='w')
-f_test = h5py.File('multimodal_imdb_test.hdf5', mode='w')
+# Save embeddings
 
-dtype = h5py.special_dtype(vlen=numpy.dtype('int32'))
+mat = asarray(X[:nsamples_train, :])
+save('../mmimdb/data_word2vec/w2v_train.npy', mat)
 
-features_train = f_train.create_dataset('features', (nsamples_train, textual_dim), dtype='float32')
-vgg_features_train = f_train.create_dataset(
-    'vgg_features', (nsamples_train, 4096), dtype='float32')
-genres_train = f_train.create_dataset('labels', (nsamples_train, n_classes), dtype='int32')
+mat = asarray(X[nsamples_train:nsamples_train+nsamples_dev, :])
+save('../mmimdb/data_word2vec/w2v_dev.npy', mat)
 
-features_dev = f_dev.create_dataset('features', (nsamples_dev, textual_dim), dtype='float32')
-vgg_features_dev = f_dev.create_dataset(
-    'vgg_features', (nsamples_dev, 4096), dtype='float32')
-genres_dev = f_dev.create_dataset('labels', (nsamples_dev, n_classes), dtype='int32')
+mat = asarray(X[nsamples_train+nsamples_dev:, :])
+save('../mmimdb/data_word2vec/w2v_test.npy', mat)
 
-features_test = f_test.create_dataset('features', (nsamples_test, textual_dim), dtype='float32')
-vgg_features_test = f_test.create_dataset(
-    'vgg_features', (nsamples_test, 4096), dtype='float32')
-genres_test = f_test.create_dataset('labels', (nsamples_test, n_classes), dtype='int32')
+# Save image features
 
-
-#three_grams = f.create_dataset(
-#    'three_grams', (nsamples, ngrams_feats.shape[1]), dtype='float32')
-#word_grams = f.create_dataset(
-#    'word_grams', (nsamples, wordgrams_feats.shape[1]), dtype='float32')
-#images = f.create_dataset(
-#    'images', [nsamples, num_channels] + img_size[::-1], dtype='int32')
-#seqs = f.create_dataset('sequences', (nsamples,), dtype=dtype)
-#imdb_ids = f.create_dataset('imdb_ids', (nsamples,), dtype="S7")
-#imdb_ids[...] = numpy.asarray([m['imdb_id']
-#                               for m in movies], dtype='S7')[indices]
-
-features_train[...] = X[:nsamples_train, :]
-features_dev[...] = X[nsamples_train:nsamples_train+nsamples_dev, :]
-features_test[...] = X[nsamples_train+nsamples_dev:, :]
-
+vgg_features = np.zeros((len(train_idx), 4096))
 for i, idx in enumerate(train_idx):
-    vgg_features_train[i] = movies[idx]['vgg_features']
+    vgg_features[i] = movies[idx]['vgg_features']
+mat = asarray(vgg_features)
+save('../mmimdb/data_word2vec/vgg_train.npy', mat)
 
+vgg_features = np.zeros((len(dev_idx), 4096))
 for i, idx in enumerate(dev_idx):
-    vgg_features_dev[i] = movies[idx]['vgg_features']
+    vgg_features[i] = movies[idx]['vgg_features']
+mat = asarray(vgg_features)
+save('../mmimdb/data_word2vec/vgg_dev.npy', mat)
 
+vgg_features = np.zeros((len(test_idx), 4096))
 for i, idx in enumerate(test_idx):
-    vgg_features_test[i] = movies[idx]['vgg_features']
-    
-genres_train[...] = Y[train_idx][:, labels]
-genres_dev[...] = Y[dev_idx][:, labels]
-genres_test[...] = Y[test_idx][:, labels]
+    vgg_features[i] = movies[idx]['vgg_features']
+mat = asarray(vgg_features)
+save('../mmimdb/data_word2vec/vgg_test.npy', mat)
 
-'''
-#for i, idx in enumerate(indices):
-#    vgg_features[i] = movies[idx]['vgg_features']
-#seqs[...] = sequences
-genres[...] = Y[indices][:, labels]
-#three_grams[...] = ngrams_feats[indices].todense()
-#word_grams[...] = wordgrams_feats[indices].todense()
-genres.attrs['target_names'] = json.dumps(target_names)
-features.dims[0].label = 'batch'
-features.dims[1].label = 'features'
-#three_grams.dims[0].label = 'batch'
-#three_grams.dims[1].label = 'features'
-#word_grams.dims[0].label = 'batch'
-#word_grams.dims[1].label = 'features'
-#imdb_ids.dims[0].label = 'batch'
-genres.dims[0].label = 'batch'
-genres.dims[1].label = 'classes'
-vgg_features.dims[0].label = 'batch'
-vgg_features.dims[1].label = 'features'
-#images.dims[0].label = 'batch'
-#images.dims[1].label = 'channel'
-#images.dims[2].label = 'height'
-#images.dims[3].label = 'width'
-'''
+# Save labels
 
-'''
-split_dict = {
-    'train': {
-        'features': (0, nsamples_train),
-        #'three_grams': (0, nsamples_train),
-        #'sequences': (0, nsamples_train),
-        #'images': (0, nsamples_train),
-        'vgg_features': (0, nsamples_train),
-        #'imdb_ids': (0, nsamples_train),
-        #'word_grams': (0, nsamples_train),
-        'genres': (0, nsamples_train)},
-    'dev': {
-        'features': (nsamples_train, nsamples_train + nsamples_dev),
-        #'three_grams': (nsamples_train, nsamples_train + nsamples_dev),
-        #'sequences': (nsamples_train, nsamples_train + nsamples_dev),
-        #'images': (nsamples_train, nsamples_train + nsamples_dev),
-        'vgg_features': (nsamples_train, nsamples_train + nsamples_dev),
-        #'imdb_ids': (nsamples_train, nsamples_train + nsamples_dev),
-        #'word_grams': (nsamples_train, nsamples_train + nsamples_dev),
-        'genres': (nsamples_train, nsamples_train + nsamples_dev)},
-    'test': {
-        'features': (nsamples_train + nsamples_dev, nsamples),
-        #'three_grams': (nsamples_train + nsamples_dev, nsamples),
-        #'sequences': (nsamples_train + nsamples_dev, nsamples),
-        #'images': (nsamples_train + nsamples_dev, nsamples),
-        'vgg_features': (nsamples_train + nsamples_dev, nsamples),
-        #'imdb_ids': (nsamples_train + nsamples_dev, nsamples),
-        #'word_grams': (nsamples_train + nsamples_dev, nsamples),
-        'genres': (nsamples_train + nsamples_dev, nsamples)}
-}
-'''
+mat = asarray(Y[train_idx][:, labels])
+save('../mmimdb/data_word2vec/labels__train.npy', mat)
 
-#f.attrs['split'] = H5PYDataset.create_split_array(split_dict)
-f_train.flush()
-f_train.close()
+mat = asarray(Y[dev_idx][:, labels])
+save('../mmimdb/data_word2vec/labels__dev.npy', mat)
 
-f_dev.flush()
-f_dev.close()
+mat = asarray(Y[test_idx][:, labels])
+save('../mmimdb/data_word2vec/labels__test.npy', mat)
 
-f_test.flush()
-f_test.close()
+
+# Plot distribution
+cm = numpy.zeros((n_classes, n_classes), dtype='int')
+for i, l in enumerate(labels):
+    cm[i] = Y[Y[:, l].nonzero()[0]].sum(axis=0)[labels]
+
+cmap = pyplot.cm.Blues
+cm_normalized = cm.astype('float') / cm.sum(axis=1)[:, numpy.newaxis]
+for i in range(len(target_names)):
+    cm_normalized[i, i] = 0
+pyplot.imshow(cm_normalized, interpolation='nearest', cmap=cmap, aspect='auto')
+for i, cas in enumerate(cm):
+    for j, c in enumerate(cas):
+        if c > 0:
+            pyplot.text(j - .2, i + .2, c, fontsize=4)
+pyplot.title('Shared labels', fontsize='smaller')
+pyplot.colorbar()
+tick_marks = numpy.arange(len(target_names))
+pyplot.xticks(tick_marks, target_names, rotation=90)
+pyplot.yticks(tick_marks, target_names)
+pyplot.tight_layout()
+pyplot.savefig('distribution.pdf')
+pyplot.close()

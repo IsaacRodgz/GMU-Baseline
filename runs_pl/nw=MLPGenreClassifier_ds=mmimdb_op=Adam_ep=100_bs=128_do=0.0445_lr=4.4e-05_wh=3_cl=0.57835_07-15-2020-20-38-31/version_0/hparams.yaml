@@ -32,10 +32,10 @@ hyp_params: !!python/object:argparse.Namespace
   image_feature_size: 4096
   log_interval: 100
   lr: 4.4e-05
-  max_epochs: 120
+  max_epochs: 100
   mlp_dropout: 0.0445
-  model: GMU
-  name: GMU
+  model: MLPGenreClassifier
+  name: MLPGenreClassifier
   no_cuda: false
   optim: Adam
   output_dim: 23
