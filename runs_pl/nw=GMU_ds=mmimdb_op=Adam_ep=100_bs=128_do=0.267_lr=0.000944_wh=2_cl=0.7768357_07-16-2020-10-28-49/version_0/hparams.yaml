@@ -1,0 +1,66 @@
+hyp_params: !!python/object:argparse.Namespace
+  batch_size: 128
+  chk: 3
+  cnn_model: vgg16
+  criterion: !!python/object:torch.nn.modules.loss.BCEWithLogitsLoss
+    _backward_hooks: !!python/object/apply:collections.OrderedDict
+    - []
+    _buffers: !!python/object/apply:collections.OrderedDict
+    - - - weight
+        - null
+      - - pos_weight
+        - !!python/object/apply:torch._utils._rebuild_tensor_v2
+          - !!python/object/apply:torch.storage._load_from_bytes
+            - !!binary |
+              gAKKCmz8nEb5IGqoUBkugAJN6QMugAJ9cQAoWBAAAABwcm90b2NvbF92ZXJzaW9ucQFN6QNYDQAA
+              AGxpdHRsZV9lbmRpYW5xAohYCgAAAHR5cGVfc2l6ZXNxA31xBChYBQAAAHNob3J0cQVLAlgDAAAA
+              aW50cQZLBFgEAAAAbG9uZ3EHSwR1dS6AAihYBwAAAHN0b3JhZ2VxAGN0b3JjaApGbG9hdFN0b3Jh
+              Z2UKcQFYDgAAADk0MzA0MTQ1NTI1NTM2cQJYBgAAAGN1ZGE6MHEDSxdOdHEEUS6AAl1xAFgOAAAA
+              OTQzMDQxNDU1MjU1MzZxAWEuFwAAAAAAAAAAAIA/QhjTP0QfJ0BGMC1AXx9rQNstekBhVKdAKSqo
+              QFhz2kCi+9pAdWreQHr850Di0AlBzjknQbILK0E2NkZB05dUQb8BZkHp+oVBtFGfQbjQsUFF1O9B
+              188mQg==
+          - 0
+          - !!python/tuple
+            - 23
+          - !!python/tuple
+            - 1
+          - false
+          - !!python/object/apply:collections.OrderedDict
+            - []
+    _forward_hooks: !!python/object/apply:collections.OrderedDict
+    - []
+    _forward_pre_hooks: !!python/object/apply:collections.OrderedDict
+    - []
+    _load_state_dict_pre_hooks: !!python/object/apply:collections.OrderedDict
+    - []
+    _modules: !!python/object/apply:collections.OrderedDict
+    - []
+    _parameters: !!python/object/apply:collections.OrderedDict
+    - []
+    _state_dict_hooks: !!python/object/apply:collections.OrderedDict
+    - []
+    reduction: mean
+    training: true
+  data_path: /001/usuarios/isaac.bribiesca/
+  dataset: mmimdb
+  gamma: 0.370178
+  gpus: 1
+  gradient_clip_val: 0.7768357
+  hidden_size: 512
+  image_feature_size: 4096
+  log_interval: 100
+  lr: 0.000944
+  max_epochs: 100
+  mlp_dropout: 0.267
+  model: GMU
+  name: GMU
+  no_cuda: false
+  optim: Adam
+  output_dim: 23
+  search: false
+  seed: 1111
+  test: false
+  text_embedding_size: 300
+  use_cuda: true
+  when: 2
+trial: null

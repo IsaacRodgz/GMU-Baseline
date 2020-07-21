@@ -17,6 +17,7 @@ from pytorch_lightning.metrics.sklearns import F1
 from pytorch_lightning import Callback
 import optuna
 from optuna.integration import PyTorchLightningPruningCallback
+from pytorch_lightning.callbacks import EarlyStopping
 from pytorch_lightning.callbacks import ModelCheckpoint
 
 import math
@@ -155,12 +156,13 @@ class GMUModel(pl.LightningModule):
 
     
     def loss_function(self, outputs, targets):
-        return self.hyp_params.criterion(outputs, targets)
+        #return self.hyp_params.criterion(outputs, targets)
+        return F.binary_cross_entropy_with_logits(outputs, targets, pos_weight=self.hyp_params.label_weights.cuda())
     
     def configure_optimizers(self):
         if self.trial is None:
             lr = self.hyp_params.lr
-            gamma = 0.504
+            gamma = self.hyp_params.gamma
             when = self.hyp_params.mlp_dropout
         else:
             lr = self.trial.suggest_loguniform('learning_rate', 1e-6, 0.1)
@@ -183,7 +185,32 @@ class GMUModel(pl.LightningModule):
         
         loss = self.loss_function(outputs, targets)
         
-        return {'loss': loss}
+        _, f1_micro, f1_macro, f1_weighted, f1_samples = metrics(outputs, targets)
+        f1_micro = torch.from_numpy(np.array(f1_micro))
+        f1_macro = torch.from_numpy(np.array(f1_macro))
+        f1_weighted = torch.from_numpy(np.array(f1_weighted))
+        f1_samples = torch.from_numpy(np.array(f1_samples))
+        
+        return {'loss': loss,
+                'train_f1_micro': f1_micro,
+                'train_f1_macro': f1_macro,
+                'train_f1_weighted': f1_weighted,
+                'train_f1_samples': f1_samples}
+    
+    def training_epoch_end(self, outputs):
+        avg_loss = torch.stack([x['loss'] for x in outputs]).mean()
+        avg_f1_micro = torch.stack([x['train_f1_micro'] for x in outputs]).mean()
+        avg_f1_macro = torch.stack([x['train_f1_macro'] for x in outputs]).mean()
+        avg_f1_weighted = torch.stack([x['train_f1_weighted'] for x in outputs]).mean()
+        avg_f1_samples = torch.stack([x['train_f1_samples'] for x in outputs]).mean()
+
+        self.logger.experiment.add_scalar('f1-micro/train', avg_f1_micro, self.current_epoch+1)
+        self.logger.experiment.add_scalar('f1-macro/train', avg_f1_macro, self.current_epoch+1)
+        self.logger.experiment.add_scalar('f1-weighted/train', avg_f1_weighted, self.current_epoch+1)
+        self.logger.experiment.add_scalar('f1-samples/train', avg_f1_samples, self.current_epoch+1)
+        self.logger.experiment.add_scalar('loss/train', avg_loss, self.current_epoch+1)
+        
+        return {'loss': avg_loss, 'train_f1_micro': avg_f1_micro, 'train_f1_macro': avg_f1_macro}
     
     def train_dataloader(self):
         train_data = MMIMDbDataset(self.hyp_params.data_path,
@@ -209,8 +236,7 @@ class GMUModel(pl.LightningModule):
         )
         
         loss = self.loss_function(outputs, targets)
-        outputs = (outputs > 0.5).float()
-        #f1_micro = self.metric(outputs, targets)
+
         _, f1_micro, f1_macro, f1_weighted, f1_samples = metrics(outputs, targets)
         f1_micro = torch.from_numpy(np.array(f1_micro))
         f1_macro = torch.from_numpy(np.array(f1_macro))
@@ -229,21 +255,14 @@ class GMUModel(pl.LightningModule):
         avg_f1_macro = torch.stack([x['val_f1_macro'] for x in outputs]).mean()
         avg_f1_weighted = torch.stack([x['val_f1_weighted'] for x in outputs]).mean()
         avg_f1_samples = torch.stack([x['val_f1_samples'] for x in outputs]).mean()
-        
-        '''
-        tensorboard_logs = {'loss/val': avg_loss,
-                            'f1_micro/val': avg_f1_micro,
-                            'f1_macro/val': avg_f1_macro,
-                            'f1_weighted/val': avg_f1_weighted,
-                            'f1_samples/val': avg_f1_samples}
-        '''
-        
+
         self.logger.experiment.add_scalar('f1-micro/val', avg_f1_micro, self.current_epoch+1)
         self.logger.experiment.add_scalar('f1-macro/val', avg_f1_macro, self.current_epoch+1)
         self.logger.experiment.add_scalar('f1-weighted/val', avg_f1_weighted, self.current_epoch+1)
         self.logger.experiment.add_scalar('f1-samples/val', avg_f1_samples, self.current_epoch+1)
+        self.logger.experiment.add_scalar('loss/val', avg_loss, self.current_epoch+1)
         
-        return {'val_loss': avg_loss, 'val_f1_micro': avg_f1_micro}
+        return {'val_loss': avg_loss, 'val_f1_micro': avg_f1_micro, 'val_f1_macro': avg_f1_macro}
     
     def val_dataloader(self):
         val_data = MMIMDbDataset(self.hyp_params.data_path,
@@ -274,12 +293,14 @@ class GMUModel(pl.LightningModule):
         f1_macro = torch.from_numpy(np.array(f1_macro))
         f1_weighted = torch.from_numpy(np.array(f1_weighted))
         f1_samples = torch.from_numpy(np.array(f1_samples))
+        f1_per_class = torch.from_numpy(report_per_class(outputs, targets))
         
         return {'test_loss': loss,
                 'test_f1_micro': f1_micro,
                 'test_f1_macro': f1_macro,
                 'test_f1_weighted': f1_weighted,
-                'test_f1_samples': f1_samples}
+                'test_f1_samples': f1_samples,
+                'test_f1_per_class': f1_per_class}
     
     def test_epoch_end(self, outputs):
         avg_loss = torch.stack([x['test_loss'] for x in outputs]).mean()
@@ -287,19 +308,9 @@ class GMUModel(pl.LightningModule):
         avg_f1_macro = torch.stack([x['test_f1_macro'] for x in outputs]).mean()
         avg_f1_weighted = torch.stack([x['test_f1_weighted'] for x in outputs]).mean()
         avg_f1_samples = torch.stack([x['test_f1_samples'] for x in outputs]).mean()
+        avg_f1_per_class = torch.stack([x['test_f1_per_class'] for x in outputs]).mean(0)
         
-        '''
-        tensorboard_logs = {'loss/test': avg_loss,
-                            'f1_micro/test': avg_f1_micro,
-                            'f1_macro/test': avg_f1_macro,
-                            'f1_weighted/test': avg_f1_weighted,
-                            'f1_samples/test': avg_f1_samples}
-        '''
-        
-        #self.logger.experiment.add_scalar('f1-micro/val', avg_f1_micro, self.current_epoch+1)
-        #self.logger.experiment.add_scalar('f1-macro/val', avg_f1_macro, self.current_epoch+1)
-        #self.logger.experiment.add_scalar('f1-weighted/val', avg_f1_weighted, self.current_epoch+1)
-        #self.logger.experiment.add_scalar('f1-samples/val', avg_f1_samples, self.current_epoch+1)
+        print("f1-score per class: ", avg_f1_per_class)
         
         return {'val_loss': avg_loss,
                 'test_f1_micro': avg_f1_micro,
@@ -340,6 +351,8 @@ class GMUModel(pl.LightningModule):
                             help='optimizer to use (default: Adam)')
         parser.add_argument('--when', type=int, default=2,
                             help='when to decay learning rate (default: 2)')
+        parser.add_argument('--gamma', type=float, default=0.5,
+                            help='Scheduler factor (default: 0.5)')
         return parser
 
 
@@ -357,38 +370,26 @@ class MetricsCallback(Callback):
 def objective(trial):
     
     checkpoint_callback = pl.callbacks.ModelCheckpoint(
-        os.path.join('checkpoints', "trial_{}".format(trial.number)), monitor="val_f1_micro"
+        os.path.join('checkpoints', "trial_{}".format(trial.number)), monitor="val_f1_macro"
     )
 
-    # The default logger in PyTorch Lightning writes to event files to be consumed by
-    # TensorBoard. We create a simple logger instead that holds the log in memory so that the
-    # final accuracy can be obtained after optimization. When using the default logger, the
-    # final accuracy could be stored in an attribute of the `Trainer` instead.
     metrics_callback = MetricsCallback()
     run_name = create_run_name(args)
     logger = TensorBoardLogger(save_dir='runs_pl_temp/', name=run_name)
-    
-    '''
-    trainer = Trainer.from_argparse_args(args,
-                                 logger=logger,
-                                 checkpoint_callback=checkpoint_callback,
-                                 early_stop_callback=PyTorchLightningPruningCallback(trial, monitor="val_f1_micro"),
-                                 callbacks=[metrics_callback],
-                                )
-    '''
+
     trainer = pl.Trainer(gpus=1,
                          logger=logger,
                          max_epochs=args.max_epochs,
                          gradient_clip_val=trial.suggest_uniform("clip", 0.1, 0.9),
                          checkpoint_callback=checkpoint_callback,
-                         early_stop_callback=PyTorchLightningPruningCallback(trial, monitor="val_f1_micro"),
+                         early_stop_callback=PyTorchLightningPruningCallback(trial, monitor="val_f1_macro"),
                          callbacks=[metrics_callback],
                         )
     
     mlp = GMUModel(args, trial)
     trainer.fit(mlp)
 
-    return metrics_callback.metrics[-1]["val_f1_micro"].item()
+    return metrics_callback.metrics[-1]["val_f1_macro"].item()
 
     
 if __name__ == '__main__':
@@ -441,40 +442,37 @@ if __name__ == '__main__':
         'mmimdb': 'BCEWithLogitsLoss'
     }
 
-    torch.set_default_tensor_type('torch.FloatTensor')
-    if torch.cuda.is_available():
-        if args.no_cuda:
-            print("WARNING: You have a CUDA device, so you should probably not run with --no_cuda")
-        else:
-            torch.cuda.manual_seed(args.seed)
-            torch.set_default_tensor_type('torch.cuda.FloatTensor')
-            use_cuda = True
-
     args.use_cuda = use_cuda
     args.dataset = dataset
     args.model = args.model.strip()
     args.output_dim = output_dim_dict.get(dataset)
-    args.criterion = getattr(nn, criterion_dict.get(dataset))()
+    
+    args.label_weights = torch.load('class_weights/class_weights_1.pt')
     
     if args.search:
         study = optuna.create_study(direction="maximize", pruner=optuna.pruners.MedianPruner())
-        study.optimize(objective, n_trials=100, timeout=600)
+        study.optimize(objective, n_trials=50, timeout=None)
 
         print("Number of finished trials: {}".format(len(study.trials)))
 
-        print("Best trial:")
-        trial = study.best_trial
+        with open("hyper_optim_result_gmu.txt", 'w') as f:
+            print("Best trial:")
+            trial = study.best_trial
 
-        print("  Value: {}".format(trial.value))
+            print("  Value: {}".format(trial.value))
+            f.write("  Value: {}".format(trial.value))
 
-        print("  Params: ")
-        for key, value in trial.params.items():
-            print("    {}: {}".format(key, value))
+            print("  Params: ")
+            for key, value in trial.params.items():
+                print("    {}: {}".format(key, value))
+                f.write("    {}: {}".format(key, value))
+            
+        #optuna.visualization.plot_slice(study)
+        #plt.savefig('optim_gmu.png')
     
     else:
         if args.test:
-            num = 165
-            model = GMUModel.load_from_checkpoint(f'pre_trained_models/GMU_{num}.ckpt')
+            model = GMUModel.load_from_checkpoint(f'pre_trained_models/{args.name}_{num}.ckpt')
             
             trainer = pl.Trainer(gpus=args.gpus)
             
@@ -482,22 +480,29 @@ if __name__ == '__main__':
             
         else:
             checkpoint_callback = ModelCheckpoint(
-                filepath=f'pre_trained_models/{args.name}.ckpt',
+                filepath='pre_trained_models/'+args.name+'_{epoch}_{val_f1_macro:.4f}',
                 save_top_k=args.chk,
                 verbose=True,
-                monitor='val_f1_micro',
+                monitor='val_f1_macro',
                 mode='max',
                 prefix=''
             )
             
-            run_name = create_run_name(args)
-            logger = TensorBoardLogger(save_dir='runs_pl/', name=run_name)
+            early_stopping = EarlyStopping('val_f1_macro',
+                                           min_delta=0.01,
+                                           patience=30,
+                                           verbose=True,
+                                           mode='max'
+                                          )
             
-            #trainer = pl.Trainer(gpus=2, distributed_backend='dp', logger=logger, max_epochs=hyp_params.num_epochs)
+            run_name = create_run_name(args)
+            logger = TensorBoardLogger(save_dir='runs_pl_new/', name=run_name)
+            
             trainer = pl.Trainer(gpus=args.gpus,
                                  max_epochs=args.max_epochs,
                                  gradient_clip_val=args.gradient_clip_val,
                                  logger=logger,
+                                 early_stop_callback=early_stopping,
                                  checkpoint_callback=checkpoint_callback
                                 )
 

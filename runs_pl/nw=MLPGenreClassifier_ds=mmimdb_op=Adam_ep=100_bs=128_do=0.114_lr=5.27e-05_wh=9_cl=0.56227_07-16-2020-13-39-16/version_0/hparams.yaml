@@ -1,0 +1,45 @@
+hyp_params: !!python/object:argparse.Namespace
+  batch_size: 128
+  chk: 3
+  cnn_model: vgg16
+  data_path: /001/usuarios/isaac.bribiesca/
+  dataset: mmimdb
+  gamma: 0.5
+  gpus: 1
+  gradient_clip_val: 0.56227
+  hidden_size: 512
+  image_feature_size: 4096
+  label_weights: !!python/object/apply:torch._utils._rebuild_tensor_v2
+  - !!python/object/apply:torch.storage._load_from_bytes
+    - !!binary |
+      gAKKCmz8nEb5IGqoUBkugAJN6QMugAJ9cQAoWBAAAABwcm90b2NvbF92ZXJzaW9ucQFN6QNYDQAA
+      AGxpdHRsZV9lbmRpYW5xAohYCgAAAHR5cGVfc2l6ZXNxA31xBChYBQAAAHNob3J0cQVLAlgDAAAA
+      aW50cQZLBFgEAAAAbG9uZ3EHSwR1dS6AAihYBwAAAHN0b3JhZ2VxAGN0b3JjaApGbG9hdFN0b3Jh
+      Z2UKcQFYDgAAADk0MDEzMjQzMTY1NDA4cQJYBgAAAGN1ZGE6MHEDSxdOdHEEUS6AAl1xAFgOAAAA
+      OTQwMTMyNDMxNjU0MDhxAWEuFwAAAAAAAAAAAIA//xAuQJ0z2kCPVOpAnfJXQZd9dEFlvtpBuu7c
+      QaZoOkKHUTtCzjxBQpw5UkJ5YpRC8XjaQkGR5ELndxlDz4swQySnTkNYPYxDL03GQ5AE90MJrmBE
+      aGTZRA==
+  - 0
+  - !!python/tuple
+    - 23
+  - !!python/tuple
+    - 1
+  - false
+  - !!python/object/apply:collections.OrderedDict
+    - []
+  log_interval: 100
+  lr: 5.27e-05
+  max_epochs: 100
+  mlp_dropout: 0.114
+  model: MLPGenreClassifier
+  name: MLPGenreClassifier
+  no_cuda: false
+  optim: Adam
+  output_dim: 23
+  search: false
+  seed: 1111
+  test: false
+  text_embedding_size: 300
+  use_cuda: true
+  when: 9
+trial: null
